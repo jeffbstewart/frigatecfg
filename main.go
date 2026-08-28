@@ -20,6 +20,8 @@ func usage() {
   merge   -canonical F -tuning F -live F [-out F]   every-start config
   pull    -live F [-out F]                          owned paths -> tuning
   diff    -canonical F -tuning F -live F            classify drift
+  watch   -canonical F -tuning F -live F [-interval D] [-listen A]
+                                                    re-diff on an interval, serve /metrics
   paths                                             print the owned paths
 
 Exit codes for diff: 0 no drift, 2 tuning drift only, 3 structural drift.
@@ -41,6 +43,8 @@ func main() {
 		err = cmdPull(os.Args[2:])
 	case "diff":
 		err = cmdDiff(os.Args[2:])
+	case "watch":
+		err = cmdWatch(os.Args[2:])
 	case "paths":
 		for _, p := range ownedPatterns {
 			fmt.Println(p)

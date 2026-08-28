@@ -59,6 +59,20 @@ volume at `/config`; the Frigate container mounts only `/config`.
 The image is `FROM scratch` with the static binary at `/frigatecfg`
 and no shell; the pod spec calls it with `args`.
 
+## As a sidecar: drift metrics
+
+    frigatecfg watch -canonical /in/garage.yaml -tuning /in/garage.tuning.yaml \
+        -live /config/config.yml -interval 5m -listen :9117
+
+Re-runs `diff` on the interval and serves Prometheus gauges on
+`/metrics`: `frigatecfg_config_drift{kind="tuning"}` (owned paths
+differing: pull pending), `frigatecfg_config_drift{kind="structural"}`
+(UI edits that will be reverted on the next start: move them to git),
+`frigatecfg_config_check_timestamp_seconds`, and
+`frigatecfg_config_check_errors_total`.  The drifting paths are logged
+whenever the set changes.  It runs beside Frigate because the live
+file is on Frigate's (single-attach) volume.
+
 ## Why not text markers
 
 Frigate's `/api/config/set` sets a dotted key wherever it lives; it
@@ -69,7 +83,15 @@ reverted rather than merged.
 
 ## Development
 
-Go, one dependency (`gopkg.in/yaml.v3`).  `gofmt`, `go vet`, `go test`
+Supply chain: `go.sum` pins `yaml.v3` by hash and the Go toolchain
+verifies it on every build (`-mod=readonly`, also cross-checked
+against sum.golang.org); CI actions are pinned by commit SHA and the
+builder image by digest; `govulncheck` runs in CI.  Version bumps are
+deliberate diffs to `go.mod`/`go.sum`, never implicit.
+
+Go 1.26 (the `toolchain` directive in go.mod makes every build use the
+patched release; Go ships fixes only for the two newest majors), one
+dependency (`gopkg.in/yaml.v3`).  `gofmt`, `go vet`, `go test`
 and a secret scan (`lifecycle/presubmit-check.sh`: IPs, keys, long
 hex, UUIDs; allowlist beside it) run in CI; `sh lifecycle/install-hooks.sh`
 installs the scan as the pre-commit hook.  Pushes to `main` and `v*`
