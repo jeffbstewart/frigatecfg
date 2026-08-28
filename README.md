@@ -83,7 +83,15 @@ reverted rather than merged.
 
 ## Development
 
-Go, one dependency (`gopkg.in/yaml.v3`).  `gofmt`, `go vet`, `go test`
+Supply chain: `go.sum` pins `yaml.v3` by hash and the Go toolchain
+verifies it on every build (`-mod=readonly`, also cross-checked
+against sum.golang.org); CI actions are pinned by commit SHA and the
+builder image by digest; `govulncheck` runs in CI.  Version bumps are
+deliberate diffs to `go.mod`/`go.sum`, never implicit.
+
+Go 1.26 (the `toolchain` directive in go.mod makes every build use the
+patched release; Go ships fixes only for the two newest majors), one
+dependency (`gopkg.in/yaml.v3`).  `gofmt`, `go vet`, `go test`
 and a secret scan (`lifecycle/presubmit-check.sh`: IPs, keys, long
 hex, UUIDs; allowlist beside it) run in CI; `sh lifecycle/install-hooks.sh`
 installs the scan as the pre-commit hook.  Pushes to `main` and `v*`

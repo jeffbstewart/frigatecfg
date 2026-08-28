@@ -10,3 +10,8 @@ file:go.sum
 # The checker and its tests contain example IPs/keys by nature.
 file:presubmit-check.sh
 file:presubmit-check-test.sh
+
+# Supply-chain pins ARE long hex by design: action commit SHAs in the
+# workflow, the builder image digest in the Dockerfile.
+file:ci.yml
+file:Dockerfile

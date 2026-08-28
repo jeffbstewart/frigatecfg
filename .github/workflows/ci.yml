@@ -10,17 +10,26 @@ permissions:
   contents: read
   packages: write
 
+# Supply chain: actions are pinned by commit SHA (not floating major
+# tags), the builder image by digest (Dockerfile), and go.sum is
+# enforced (-mod=readonly: a missing or mismatched module hash is a
+# build error, never a silent re-resolve).  govulncheck flags known
+# vulns in the one dependency without anyone having to remember.
+env:
+  GOFLAGS: -mod=readonly
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, resolved 2026-08-27
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5, resolved 2026-08-27
         with:
           go-version-file: go.mod
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       # Secret scan over the whole tree (diff from the empty tree), plus
       # the scanner's own tests.  Same checker as MediaManager.
       - run: git diff "$(git hash-object -t tree /dev/null)" HEAD | bash lifecycle/presubmit-check.sh
@@ -31,13 +40,13 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, resolved 2026-08-27
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3, resolved 2026-08-27
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5, resolved 2026-08-27
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
@@ -45,7 +54,7 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6, resolved 2026-08-27
         with:
           context: .
           push: true
