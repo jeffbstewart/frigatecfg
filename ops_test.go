@@ -232,19 +232,20 @@ func TestDiffCleanWhenLiveEqualsRender(t *testing.T) {
 
 func TestOwnedPatterns(t *testing.T) {
 	cases := map[string]bool{
-		"cameras.garage.motion.mask":                     true,
-		"cameras.garage.motion.threshold":                true,
-		"cameras.garage.zones.driveway.coordinates":      true,
-		"cameras.garage.objects.filters.person.mask":     true,
-		"cameras.garage.objects.filters.person.min_area": false,
-		"cameras.garage.review.alerts.required_zones":    true,
-		"cameras.garage.detect.fps":                      false,
-		"cameras.garage.ffmpeg.inputs":                   false,
-		"model.path":                                     false,
-		"version":                                        true,
-		"camera_groups.outside.order":                    true,
-		"semantic_search.model_size":                     true,
-		"semantic_search.reindex":                        false,
+		"cameras.garage.motion.mask":                              true,
+		"cameras.garage.motion.threshold":                         true,
+		"cameras.garage.zones.driveway.coordinates":               true,
+		"cameras.garage.objects.filters.person.mask":              true,
+		"cameras.garage.objects.filters.person.min_area":          false,
+		"cameras.garage.review.alerts.required_zones":             true,
+		"cameras.garage.detect.fps":                               false,
+		"cameras.garage.ffmpeg.inputs":                            false,
+		"model.path":                                              false,
+		"version":                                                 true,
+		"camera_groups.outside.order":                             true,
+		"semantic_search.model_size":                              true,
+		"semantic_search.reindex":                                 false,
+		"classification.custom.porch_package.state_config.motion": true,
 	}
 	for p, want := range cases {
 		if got := isOwned(parsePattern(p)); got != want {
