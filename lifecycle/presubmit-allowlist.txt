@@ -1,0 +1,12 @@
+# Presubmit allowlist -- one pattern per line.
+# Lines containing any of these substrings are excluded from violation
+# reports; "file:<name>" skips a whole file.  Comments start with #.
+# (Same checker as MediaManager/lifecycle; keep this list short and
+# justified -- this repo is public.)
+
+# go.sum module hashes are base64, not hex, and never secrets.
+file:go.sum
+
+# The checker and its tests contain example IPs/keys by nature.
+file:presubmit-check.sh
+file:presubmit-check-test.sh
