@@ -59,7 +59,7 @@ volume at `/config`; the Frigate container mounts only `/config`.
 The image is `FROM scratch` with the static binary at `/frigatecfg`
 and no shell; the pod spec calls it with `args`.
 
-## As a sidecar: drift metrics
+## As a sidecar: drift metrics and the pull-from-log channel
 
     frigatecfg watch -canonical /in/garage.yaml -tuning /in/garage.tuning.yaml \
         -live /config/config.yml -interval 5m -listen :9117
@@ -70,7 +70,17 @@ differing: pull pending), `frigatecfg_config_drift{kind="structural"}`
 (UI edits that will be reverted on the next start: move them to git),
 `frigatecfg_config_check_timestamp_seconds`, and
 `frigatecfg_config_check_errors_total`.  The drifting paths are logged
-whenever the set changes.  It runs beside Frigate because the live
+whenever the set changes.  When any owned path drifts, the log
+also carries the COMPLETE pull document between
+`----- frigatecfg pull begin -----` and `----- frigatecfg pull end -----`
+lines, so a reader with only `kubectl logs` (no exec into the pod) can
+bring git up to date:
+
+    kubectl -n cameras logs deploy/frigate-garage -c frigatecfg-watch > watch.log
+    frigatecfg pull -from-log watch.log -out garage.tuning.yaml
+
+`-from-log` takes the LAST block in the log; git is the baseline and
+the block is the whole current state of the owned paths, not a delta.  It runs beside Frigate because the live
 file is on Frigate's (single-attach) volume.
 
 ## Why not text markers
