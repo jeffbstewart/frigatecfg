@@ -210,8 +210,19 @@ func stripComments(n *yaml.Node) {
 	}
 }
 
+// sameValue compares two nodes by canonical form.  A one-element
+// sequence of a scalar equals that scalar: Frigate accepts a single
+// motion mask (and similar list-or-string fields) either way and
+// rewrites the file in scalar form, which must not read as drift.
 func sameValue(a, b *yaml.Node) bool {
-	return bytes.Equal(canonicalBytes(a), canonicalBytes(b))
+	return bytes.Equal(canonicalBytes(unwrapSingleton(a)), canonicalBytes(unwrapSingleton(b)))
+}
+
+func unwrapSingleton(n *yaml.Node) *yaml.Node {
+	if n != nil && n.Kind == yaml.SequenceNode && len(n.Content) == 1 && n.Content[0].Kind == yaml.ScalarNode {
+		return n.Content[0]
+	}
+	return n
 }
 
 // writeDoc encodes a document with two-space indent.

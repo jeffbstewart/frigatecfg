@@ -252,3 +252,35 @@ func TestOwnedPatterns(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffTreatsScalarAsOneItemList(t *testing.T) {
+	// Frigate rewrites a single mask as a scalar; git may hold a list.
+	live := mustParse(t, canonicalYAML+`    motion:
+      mask: "0.86,0.027,0.861,0.086,0.895,0.09,0.893,0.023"
+      threshold: 40
+`)
+	drifts, err := diff(mustParse(t, canonicalYAML), mustParse(t, tuningYAML), live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range drifts {
+		if d.Path == "cameras.garage.motion.mask" {
+			t.Errorf("scalar vs one-item list reported as drift: %+v", d)
+		}
+	}
+	// But two different masks are still drift.
+	live2 := mustParse(t, canonicalYAML+`    motion:
+      mask: "0,0,1,0,1,1"
+      threshold: 40
+`)
+	drifts, _ = diff(mustParse(t, canonicalYAML), mustParse(t, tuningYAML), live2)
+	found := false
+	for _, d := range drifts {
+		if d.Path == "cameras.garage.motion.mask" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a genuinely different mask must still be drift")
+	}
+}
