@@ -6,8 +6,19 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Markers around the full pull document in the watch log.  An
+// operator (or an agent that can read pod logs but cannot exec) takes
+// the LAST block as the tuning file: `frigatecfg pull -from-log`.
+const (
+	pullBegin = "----- frigatecfg pull begin -----"
+	pullEnd   = "----- frigatecfg pull end -----"
 )
 
 // cmdWatch re-runs diff on an interval and serves the result as
@@ -19,8 +30,9 @@ import (
 //	frigatecfg_config_check_timestamp_seconds   last successful check
 //	frigatecfg_config_check_errors_total        checks that failed to read/parse
 //
-// Drifting paths are logged on every change so `kubectl logs` shows
-// what to pull or move.
+// Whenever the drift set changes it logs the drifting paths and, if
+// any owned path drifts, the complete pull document between pullBegin
+// and pullEnd -- so the log alone is enough to bring git up to date.
 func cmdWatch(args []string) error {
 	fs := newFlags("watch")
 	canonical := fs.String("canonical", "", "canonical (git-owned) config file")
@@ -42,19 +54,7 @@ func cmdWatch(args []string) error {
 	lastReport := ""
 
 	check := func() {
-		c, t, err := readCanonicalTuning(*canonical, *tuning)
-		var drifts []Drift
-		if err == nil {
-			ln, lerr := readDoc(*live)
-			if errors.Is(lerr, os.ErrNotExist) {
-				ln = emptyDoc()
-			} else if lerr != nil {
-				err = lerr
-			}
-			if err == nil {
-				drifts, err = diff(c, t, ln)
-			}
-		}
+		res, err := checkFiles(*canonical, *tuning, *live)
 		mu.Lock()
 		defer mu.Unlock()
 		if err != nil {
@@ -62,26 +62,17 @@ func cmdWatch(args []string) error {
 			log.Printf("check failed: %v", err)
 			return
 		}
-		tn, sn := 0, 0
-		report := ""
-		for _, d := range drifts {
-			kind := "tuning"
-			if d.Owned {
-				tn++
-			} else {
-				sn++
-				kind = "STRUCTURAL"
-			}
-			report += fmt.Sprintf("%s %s (live: %s; git: %s)\n", kind, d.Path, d.Live, d.Git)
-		}
-		tuningN, structuralN, lastOK = tn, sn, time.Now()
-		if report != lastReport {
-			if report == "" {
+		tuningN, structuralN, lastOK = res.TuningN, res.StructuralN, time.Now()
+		if res.Report != lastReport {
+			if res.Report == "" {
 				log.Print("no drift")
 			} else {
-				log.Print("drift:\n" + report)
+				log.Print("drift:\n" + res.Report)
+				if res.TuningN > 0 {
+					log.Print("tuning as live (the pull document):\n" + pullBegin + "\n" + res.Pull + pullEnd)
+				}
 			}
-			lastReport = report
+			lastReport = res.Report
 		}
 	}
 
@@ -111,32 +102,82 @@ func cmdWatch(args []string) error {
 	return http.ListenAndServe(*listen, nil)
 }
 
-// checkFiles runs diff over the three files and summarizes: counts by
-// kind and a one-line-per-path report.  A missing live file is empty.
-func checkFiles(canonical, tuning, live string) (tuningN, structuralN int, report string, err error) {
+// checkResult is one drift check: counts by kind, a one-line-per-path
+// report, and the full pull document (owned paths as live).
+type checkResult struct {
+	TuningN, StructuralN int
+	Report               string
+	Pull                 string
+}
+
+// checkFiles runs diff over the three files.  A missing live file is
+// empty.
+func checkFiles(canonical, tuning, live string) (checkResult, error) {
+	var res checkResult
 	c, t, err := readCanonicalTuning(canonical, tuning)
 	if err != nil {
-		return 0, 0, "", err
+		return res, err
 	}
 	ln, err := readDoc(live)
 	if errors.Is(err, os.ErrNotExist) {
 		ln = emptyDoc()
 	} else if err != nil {
-		return 0, 0, "", err
+		return res, err
 	}
 	drifts, err := diff(c, t, ln)
 	if err != nil {
-		return 0, 0, "", err
+		return res, err
 	}
 	for _, d := range drifts {
 		kind := "tuning"
 		if d.Owned {
-			tuningN++
+			res.TuningN++
 		} else {
-			structuralN++
+			res.StructuralN++
 			kind = "STRUCTURAL"
 		}
-		report += fmt.Sprintf("%s %s (live: %s; git: %s)\n", kind, d.Path, d.Live, d.Git)
+		res.Report += fmt.Sprintf("%s %s (live: %s; git: %s)\n", kind, d.Path, d.Live, d.Git)
 	}
-	return tuningN, structuralN, report, nil
+	p, err := pull(ln)
+	if err != nil {
+		return res, err
+	}
+	b, err := writeDoc(p)
+	if err != nil {
+		return res, err
+	}
+	res.Pull = string(b)
+	return res, nil
+}
+
+// pullFromLog extracts the LAST pull document from a captured watch
+// log (kubectl logs ... -c frigatecfg-watch).  Log-line prefixes
+// (timestamps) before the markers are tolerated; the YAML lines
+// between them are taken verbatim.
+func pullFromLog(logText string) (*yaml.Node, error) {
+	lines := strings.Split(logText, "\n")
+	begin, end := -1, -1
+	for i, l := range lines {
+		l = strings.TrimRight(l, "\r")
+		switch {
+		case strings.HasSuffix(l, pullBegin):
+			begin, end = i, -1
+		case strings.HasSuffix(l, pullEnd):
+			if begin >= 0 && end < 0 {
+				end = i
+			}
+		}
+	}
+	if begin < 0 || end < 0 {
+		return nil, fmt.Errorf("no complete pull block (%q ... %q) in the log", pullBegin, pullEnd)
+	}
+	body := strings.Join(lines[begin+1:end], "\n") + "\n"
+	doc, err := parseDoc([]byte(body), "log pull block")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTuning(doc); err != nil {
+		return nil, err
+	}
+	return doc, nil
 }

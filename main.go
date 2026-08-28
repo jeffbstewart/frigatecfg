@@ -18,7 +18,7 @@ func usage() {
 
   render  -canonical F -tuning F [-out F]           first-start config
   merge   -canonical F -tuning F -live F [-out F]   every-start config
-  pull    -live F [-out F]                          owned paths -> tuning
+  pull    -live F | -from-log F [-out F]            owned paths -> tuning
   diff    -canonical F -tuning F -live F            classify drift
   watch   -canonical F -tuning F -live F [-interval D] [-listen A]
                                                     re-diff on an interval, serve /metrics
@@ -162,12 +162,25 @@ func cmdMerge(args []string) error {
 func cmdPull(args []string) error {
 	fs := newFlags("pull")
 	live := fs.String("live", "", "the live config.yml (or a GET /api/config/raw capture)")
+	fromLog := fs.String("from-log", "", "a captured watch log; take its LAST pull block instead of -live")
 	out := fs.String("out", "", "tuning file to write (default stdout)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if err := required(fs, map[string]*string{"live": live}); err != nil {
-		return err
+	if (*live == "") == (*fromLog == "") {
+		fs.Usage()
+		return fmt.Errorf("exactly one of -live or -from-log is required")
+	}
+	if *fromLog != "" {
+		b, err := os.ReadFile(*fromLog)
+		if err != nil {
+			return err
+		}
+		doc, err := pullFromLog(string(b))
+		if err != nil {
+			return err
+		}
+		return emit(*out, doc)
 	}
 	l, err := readDoc(*live)
 	if err != nil {
