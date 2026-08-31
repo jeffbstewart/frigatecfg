@@ -32,6 +32,7 @@ var ownedPatterns = []string{
 	"face_recognition.model_size",
 	"lpr.enabled",
 	"classification.bird.enabled",
+	"classification.custom", // the UI's classification wizard (state/object models)
 }
 
 // A path is a sequence of map keys from the document root.
