@@ -285,3 +285,46 @@ func TestDiffTreatsScalarAsOneItemList(t *testing.T) {
 		t.Error("a genuinely different mask must still be drift")
 	}
 }
+
+// A camera that has left the canonical file is gone: tuning for it,
+// whether in the tuning file or still in the live file, must not
+// re-create it as a camera with no streams (Frigate rejects that and
+// the shard never starts).
+func TestRenderDropsTuningForCameraAbsentFromCanonical(t *testing.T) {
+	tuning := mustParse(t, tuningYAML+`  deck:
+    motion:
+      mask: "0,0,1,0,1,1"
+`)
+	out, err := render(mustParse(t, canonicalYAML), tuning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if get(out, parsePattern("cameras.deck")) != nil {
+		t.Errorf("render resurrected a camera absent from canonical:\n%s", string(canonicalBytes(out)))
+	}
+	if got := oneLine(get(out, parsePattern("cameras.garage.motion.threshold"))); got != "40" {
+		t.Errorf("tuning for a known camera lost: %q", got)
+	}
+}
+
+func TestMergeDropsLiveTuningForCameraAbsentFromCanonical(t *testing.T) {
+	live := mustParse(t, canonicalYAML+`    motion:
+      threshold: 55
+  deck:
+    motion:
+      mask: "0,0,1,0,1,1"
+    zones:
+      yard:
+        coordinates: "0,1,1,1,1,0.5,0,0.5"
+`)
+	out, err := merge(mustParse(t, canonicalYAML), mustParse(t, tuningYAML), live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if get(out, parsePattern("cameras.deck")) != nil {
+		t.Errorf("merge resurrected a camera absent from canonical:\n%s", string(canonicalBytes(out)))
+	}
+	if got := oneLine(get(out, parsePattern("cameras.garage.motion.threshold"))); got != "55" {
+		t.Errorf("live tuning for a known camera lost: %q", got)
+	}
+}
