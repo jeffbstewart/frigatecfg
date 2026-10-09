@@ -15,7 +15,7 @@
 #   git diff --cached | ./lifecycle/presubmit-check.sh
 #
 # Allowlist: lifecycle/presubmit-allowlist.txt
-#   - Substring match:  172.16.4.12      (lines containing this string are skipped)
+#   - Substring match:  192.0.2.10       (lines containing this string are skipped)
 #   - File-level skip:  file:hls.min.js  (all changes in matching files are skipped)
 
 set -euo pipefail
