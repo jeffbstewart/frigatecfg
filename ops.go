@@ -23,6 +23,20 @@ func validateTuning(tuning *yaml.Node) error {
 	return nil
 }
 
+// cameraKnown reports whether an owned path's camera exists in the
+// canonical document.  A camera's existence is structure, and structure
+// is the canonical file's: tuning for a camera that git no longer has
+// (a retired camera whose masks and zones still sit in the tuning file
+// or the live file) must not resurrect it as a camera with no streams,
+// which Frigate rejects.  Paths outside cameras.* are always known.
+func cameraKnown(canonical *yaml.Node, p path) bool {
+	if len(p) < 2 || p[0] != "cameras" {
+		return true
+	}
+	cams := mapping(get(canonical, path{"cameras"}))
+	return cams != nil && mapGet(cams, p[1]) != nil
+}
+
 // render = canonical with every owned path present in tuning applied
 // on top.  Deterministic; the first-start config.
 func render(canonical, tuning *yaml.Node) (*yaml.Node, error) {
@@ -31,6 +45,9 @@ func render(canonical, tuning *yaml.Node) (*yaml.Node, error) {
 	}
 	out := clone(canonical)
 	for _, p := range expandAll(tuning) {
+		if !cameraKnown(canonical, p) {
+			continue
+		}
 		if v := get(tuning, p); v != nil {
 			if err := set(out, p, v); err != nil {
 				return nil, err
@@ -45,13 +62,18 @@ func render(canonical, tuning *yaml.Node) (*yaml.Node, error) {
 // canonical file carried.  Owned paths present in canonical or tuning
 // but absent from live are NOT removed from the result: a UI cannot
 // express "delete" through config/set, so absence in live is not a
-// decision.  The every-start config.
+// decision.  The one deletion that IS a decision is a whole camera
+// leaving the canonical file: its owned paths in live are dropped
+// (cameraKnown).  The every-start config.
 func merge(canonical, tuning, live *yaml.Node) (*yaml.Node, error) {
 	out, err := render(canonical, tuning)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range expandAll(live) {
+		if !cameraKnown(canonical, p) {
+			continue
+		}
 		if v := get(live, p); v != nil {
 			if err := set(out, p, v); err != nil {
 				return nil, err

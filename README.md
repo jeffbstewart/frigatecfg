@@ -25,7 +25,12 @@ prints the owned list.
         else from tuning, else whatever canonical carried.  The
         EVERY-start config.  Owned paths absent from live are not
         removed: the UI cannot express delete, so absence is not a
-        decision.  -out may equal -live (written atomically).
+        decision.  The one deletion that is: a camera gone from the
+        canonical file is gone -- its tuning (file or live) is dropped
+        rather than re-creating a camera with no streams, which Frigate
+        rejects.  Retire a camera by deleting its canonical block; its
+        tuning block can go in the same commit or later.  -out may
+        equal -live (written atomically).
 
     frigatecfg pull -live F [-out F]
         The owned paths present in live, as a tuning file.  Commit the
