@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -28,7 +30,19 @@ const (
 //	frigatecfg_config_drift{kind="tuning"}      number of owned paths differing (pull pending)
 //	frigatecfg_config_drift{kind="structural"}  number of structural paths differing (will revert)
 //	frigatecfg_config_check_timestamp_seconds   last successful check
-//	frigatecfg_config_check_errors_total        checks that failed to read/parse
+//	frigatecfg_config_check_errors_total        checks that failed to read/parse,
+//	                                            or Frigate API reads that failed
+//
+// and, with -frigate, freshness from Frigate's own API on the same
+// interval (freshness.go; curtilage docs/RESILIENCE.md):
+//
+//	frigate_newest_segment_timestamp_seconds    end_time of the newest recording segment
+//	frigate_newest_event_timestamp_seconds      start_time of the newest event
+//	frigate_review_open_stale                   review items still open after -stale-review
+//
+// The two timestamps are absent until a value has been seen (a fresh
+// Frigate has no segment for its first seconds; a zero would page
+// at once), and a failed read leaves all three at their last value.
 //
 // Whenever the drift set changes it logs the drifting paths and, if
 // any owned path drifts, the complete pull document between pullBegin
@@ -40,11 +54,17 @@ func cmdWatch(args []string) error {
 	live := fs.String("live", "", "the live config.yml")
 	interval := fs.Duration("interval", 5*time.Minute, "how often to re-check")
 	listen := fs.String("listen", ":9117", "address to serve /metrics on")
+	frigateURL := fs.String("frigate", "", "Frigate's internal API base (http://localhost:5000) for the freshness gauges; empty is off")
+	staleReview := fs.Duration("stale-review", time.Hour, "a review item open this long counts as stale")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := required(fs, map[string]*string{"canonical": canonical, "tuning": tuning, "live": live}); err != nil {
 		return err
+	}
+	var api *frigateAPI
+	if *frigateURL != "" {
+		api = newFrigateAPI(strings.TrimRight(*frigateURL, "/"))
 	}
 
 	var mu sync.Mutex
@@ -52,11 +72,25 @@ func cmdWatch(args []string) error {
 	var lastOK time.Time
 	var errorsN int
 	lastReport := ""
+	var fresh Freshness
 
 	check := func() {
 		res, err := checkFiles(*canonical, *tuning, *live)
+		var f Freshness
+		var ferr error
+		if api != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), *interval/2)
+			f, ferr = api.freshness(ctx, time.Now(), *staleReview)
+			cancel()
+		}
 		mu.Lock()
 		defer mu.Unlock()
+		if ferr != nil {
+			errorsN++
+			log.Printf("frigate freshness read failed (gauges keep their last value): %v", ferr)
+		} else if api != nil {
+			fresh = f
+		}
 		if err != nil {
 			errorsN++
 			log.Printf("check failed: %v", err)
@@ -87,9 +121,12 @@ func cmdWatch(args []string) error {
 		fmt.Fprintf(w, "# HELP frigatecfg_config_check_timestamp_seconds Unix time of the last successful check.\n")
 		fmt.Fprintf(w, "# TYPE frigatecfg_config_check_timestamp_seconds gauge\n")
 		fmt.Fprintf(w, "frigatecfg_config_check_timestamp_seconds %d\n", lastOK.Unix())
-		fmt.Fprintf(w, "# HELP frigatecfg_config_check_errors_total Checks that failed to read or parse a file.\n")
+		fmt.Fprintf(w, "# HELP frigatecfg_config_check_errors_total Checks that failed to read or parse a file, or Frigate API reads that failed.\n")
 		fmt.Fprintf(w, "# TYPE frigatecfg_config_check_errors_total counter\n")
 		fmt.Fprintf(w, "frigatecfg_config_check_errors_total %d\n", errorsN)
+		if api != nil {
+			writeFreshness(w, fresh)
+		}
 	})
 
 	check()
@@ -100,6 +137,24 @@ func cmdWatch(args []string) error {
 	}()
 	log.Printf("watching %s every %s; metrics on %s/metrics", *live, *interval, *listen)
 	return http.ListenAndServe(*listen, nil)
+}
+
+// writeFreshness is the freshness gauges in exposition format.  The
+// timestamps are omitted, not zero, until known.
+func writeFreshness(w io.Writer, f Freshness) {
+	if !f.NewestSegment.IsZero() {
+		fmt.Fprintf(w, "# HELP frigate_newest_segment_timestamp_seconds Unix time the newest recording segment on any camera ended.\n")
+		fmt.Fprintf(w, "# TYPE frigate_newest_segment_timestamp_seconds gauge\n")
+		fmt.Fprintf(w, "frigate_newest_segment_timestamp_seconds %d\n", f.NewestSegment.Unix())
+	}
+	if !f.NewestEvent.IsZero() {
+		fmt.Fprintf(w, "# HELP frigate_newest_event_timestamp_seconds Unix time the newest event started.\n")
+		fmt.Fprintf(w, "# TYPE frigate_newest_event_timestamp_seconds gauge\n")
+		fmt.Fprintf(w, "frigate_newest_event_timestamp_seconds %d\n", f.NewestEvent.Unix())
+	}
+	fmt.Fprintf(w, "# HELP frigate_review_open_stale Review items still open past the stale threshold.\n")
+	fmt.Fprintf(w, "# TYPE frigate_review_open_stale gauge\n")
+	fmt.Fprintf(w, "frigate_review_open_stale %d\n", f.StaleOpenReviews)
 }
 
 // checkResult is one drift check: counts by kind, a one-line-per-path
