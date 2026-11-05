@@ -88,6 +88,18 @@ bring git up to date:
 the block is the whole current state of the owned paths, not a delta.  It runs beside Frigate because the live
 file is on Frigate's (single-attach) volume.
 
+With `-frigate http://localhost:5000` (the pod-local internal port)
+the same check also asks Frigate's API how fresh its recording and
+detection are, and serves `frigate_newest_segment_timestamp_seconds`
+(the newest recording segment's end on any camera),
+`frigate_newest_event_timestamp_seconds` (the newest event's start)
+and `frigate_review_open_stale` (review items open longer than
+`-stale-review`, default one hour).  A NAS reboot once left Frigate
+running but silently storing nothing for a day; these are the numbers
+that page for it.  The two timestamps are absent until a value has
+been seen, and a failed read leaves all three at their last value
+and counts in `frigatecfg_config_check_errors_total`.
+
 ## Why not text markers
 
 Frigate's `/api/config/set` sets a dotted key wherever it lives; it

@@ -21,7 +21,8 @@ func usage() {
   pull    -live F | -from-log F [-out F]            owned paths -> tuning
   diff    -canonical F -tuning F -live F            classify drift
   watch   -canonical F -tuning F -live F [-interval D] [-listen A]
-                                                    re-diff on an interval, serve /metrics
+          [-frigate URL] [-stale-review D]          re-diff on an interval, serve /metrics;
+                                                    with -frigate, recording/detection freshness too
   paths                                             print the owned paths
 
 Exit codes for diff: 0 no drift, 2 tuning drift only, 3 structural drift.
